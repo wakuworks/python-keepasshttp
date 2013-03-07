@@ -9,15 +9,58 @@ import json
 import socket
 from kptool.keepassdb import keepassdb
 import keepass_crypt
+import optparse
+import ConfigParser
 
-if len(sys.argv) != 2 or not os.path.exists(sys.argv[1]):
-  print "Usage: keepass_http.py KeePassDBPath"
+DEFAULT_CONFIG_PATH = '/etc/keepasshttp.conf'
+
+config_path = DEFAULT_CONFIG_PATH
+db_path     = None
+password    = None
+
+parser = optparse.OptionParser(usage='%prog [options] [db_path]')
+parser.add_option('-c',
+                  '--config-file',
+                  dest='config_path',
+                  help='config file path')
+parser.add_option('-p',
+                  '--password',
+                  dest='password',
+                  help='kdb password')
+
+(options, args) = parser.parse_args()
+
+if not options.config_path is None:
+  config_path = options.config_path
+
+if os.path.exists(config_path):
+  conf = ConfigParser.SafeConfigParser()
+  conf.read(config_path)
+  
+  if conf.has_option('keepass', 'db_path'):
+    db_path = conf.get('keepass', 'db_path');
+  
+  if conf.has_option('keepass', 'password'):
+    password = conf.get('keepass', 'password')
+
+elif not options.config_path is None:
+  print 'config file does not exist.'
   sys.exit()
 
-db_path = sys.argv[1]
+if db_path is None:
+  if len(args) == 1 and os.path.exists(args[0]):
+    db_path = args[0]
+  else:
+    parser.print_help()
+    sys.exit()
+
 print "KeePass DB v1 path:" + db_path
 
-password = getpass.getpass("Enter Password: ")
+if password is None:
+  if not options.password is None:
+    password = options.password
+  else:
+    password = getpass.getpass('Enter Password: ')
 
 def test_associate(response):
     response['Id'] = 'chromeipass'
