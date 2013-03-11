@@ -13,10 +13,12 @@ import optparse
 import ConfigParser
 
 DEFAULT_CONFIG_PATH = '/etc/keepasshttp.conf'
+DEFAULT_KEY_PATH    = 'keyfile.txt'
 
-config_path = DEFAULT_CONFIG_PATH
-db_path     = None
-password    = None
+config_path     = DEFAULT_CONFIG_PATH
+output_key_path = DEFAULT_KEY_PATH
+db_path         = None
+password        = None
 
 parser = optparse.OptionParser(usage='%prog [options] [db_path]')
 parser.add_option('-c',
@@ -36,6 +38,9 @@ if not options.config_path is None:
 if os.path.exists(config_path):
   conf = ConfigParser.SafeConfigParser()
   conf.read(config_path)
+
+  if conf.has_option('keepass', 'output_key_path'):
+    output_key_path = conf.get('keepass', 'output_key_path');
   
   if conf.has_option('keepass', 'db_path'):
     db_path = conf.get('keepass', 'db_path');
@@ -66,15 +71,16 @@ def test_associate(response):
     response['Id'] = 'chromeipass'
     response['Success'] = False
 
-    keyfile = json.loads(open('keyfile.txt').read())
-    key = base64.b64decode(keyfile['Key']);
-    iv  = base64.b64decode(response['Nonce'])
-    verifier = base64.b64decode(response['Verifier'])
+    if os.path.exists(output_key_path):
+        keyfile = json.loads(open(output_key_path).read())
+        key = base64.b64decode(keyfile['Key']);
+        iv  = base64.b64decode(response['Nonce'])
+        verifier = base64.b64decode(response['Verifier'])
 
-    kpc = keepass_crypt.KeePassCrypt(key, iv)
+        kpc = keepass_crypt.KeePassCrypt(key, iv)
 
-    if base64.b64encode(iv) == kpc.decrypt(verifier):
-        response['Success'] = True
+        if base64.b64encode(iv) == kpc.decrypt(verifier):
+            response['Success'] = True
 
     return response
 
@@ -83,24 +89,27 @@ def get_logins(response):
     global password
 
     response['Id'] = 'chromeipass'
-    response['Success'] = True
+    response['Success'] = False
 
-    keyfile = json.loads(open('keyfile.txt').read())
-    key = base64.b64decode(keyfile['Key']);
-    iv = base64.b64decode(response['Nonce'])
+    if os.path.exists(output_key_path):
+        response['Success'] = True
 
-    kpc = keepass_crypt.KeePassCrypt(key, iv)
-    url = kpc.decrypt(base64.b64decode(response['Url']))
+        keyfile = json.loads(open(output_key_path).read())
+        key = base64.b64decode(keyfile['Key']);
+        iv = base64.b64decode(response['Nonce'])
 
-    k = keepassdb.KeepassDBv1(db_path, password)
-    response['Entries'] = []
-    for e in k.find_entries(url):
-        entry = {}
-        entry['Name']     = base64.b64encode(kpc.encrypt(e['title']))
-        entry['Login']    = base64.b64encode(kpc.encrypt(e['username']))
-        entry['Uuid']     = base64.b64encode(kpc.encrypt(e['id']))
-        entry['Password'] = base64.b64encode(kpc.encrypt(e['password']))
-        response['Entries'].append(entry)
+        kpc = keepass_crypt.KeePassCrypt(key, iv)
+        url = kpc.decrypt(base64.b64decode(response['Url']))
+
+        k = keepassdb.KeepassDBv1(db_path, password)
+        response['Entries'] = []
+        for e in k.find_entries(url):
+            entry = {}
+            entry['Name']     = base64.b64encode(kpc.encrypt(e['title']))
+            entry['Login']    = base64.b64encode(kpc.encrypt(e['username']))
+            entry['Uuid']     = base64.b64encode(kpc.encrypt(e['id']))
+            entry['Password'] = base64.b64encode(kpc.encrypt(e['password']))
+            response['Entries'].append(entry)
 
     return response
 
@@ -126,7 +135,7 @@ def handle_request(request):
     if base64.b64encode(iv) == kpc.decrypt(verifier):
       response['Success'] = True
 
-      file_handle = open('keyfile.txt', 'w')
+      file_handle = open(output_key_path, 'w')
       file_handle.write(body)
       file_handle.close()
 
